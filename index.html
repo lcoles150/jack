@@ -847,7 +847,7 @@ function aiHear(bytes) {
 function aiUtteranceDone() {
   const txt = ai.heardParts.join(' ').trim(); ai.heardParts = [];
   if (!txt) return;
-  if (ai.speaking || performance.now() / 1000 < ai.speakUntil + 0.8) return;   // that was Jack hearing himself
+  if (ai.speaking || performance.now() / 1000 < ai.speakUntil + 1.8) return;   // that was Jack hearing himself (long enough for a TV/Roku delay)
   $('aiHeard').textContent = txt;
   aiAsk(txt, false);
 }
@@ -1075,7 +1075,7 @@ function agentHear(bytes) {
   const ws = agent.ws;
   if (!ai.on || !ws || ws.readyState !== 1 || !agent.ready) return;
   // while Jack is talking, send silence so he doesn't hear himself through the speaker and interrupt himself
-  const mute = ai.speaking || performance.now() / 1000 < ai.speakUntil + 0.5;
+  const mute = ai.speaking || performance.now() / 1000 < ai.speakUntil + 1.5;   // covers the delay when casting to a TV
   try { ws.send(mute ? new ArrayBuffer(bytes.byteLength) : bytes); agent.lastSend = performance.now(); } catch (e) {}
 }
 function agentInject(text, isRetry) {
