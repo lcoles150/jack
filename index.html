@@ -127,7 +127,8 @@
 </div>
 
 <aside id="panel" class="off" aria-label="Control panel">
-  <h2>Control panel <span>H hides it</span></h2>
+  <h2>Control panel <span>H or <button type="button" id="hidePanelBtn" class="ghost" style="padding:3px 10px;font-size:12.5px">Hide</button></span></h2>
+  <div style="font-size:12px;opacity:.8;margin:-4px 0 8px">On a tablet: tap Hide, and double-tap Jack to bring this panel back.</div>
   <canvas id="cam" width="480" height="360"></canvas>
   <div class="row"><label for="character">Character (K also cycles)</label>
     <select id="character">
@@ -167,6 +168,32 @@
   <details class="grp" id="aiGroup" open>
     <summary>AI Jack (talks to the crowd on his own)</summary>
     <label class="check"><input id="aiOn" type="checkbox"><span>AI Jack is ON (listens to the crowd mic and answers)</span></label>
+    <div class="row"><label for="aiBrain">Jack's brain</label>
+      <select id="aiBrain">
+        <option value="claude-sonnet-5-5">Smarter and funnier (Claude Sonnet 5.5)</option>
+        <option value="claude-haiku-4-5-20251001">Faster and cheaper (Claude Haiku 4.5)</option>
+        <option value="dg-agent-haiku">Deepgram Agent, quick (Claude Haiku inside, about $4.50 an hour)</option>
+        <option value="dg-agent-sonnet">Deepgram Agent, smarter (Claude Sonnet inside, about $10 an hour)</option>
+      </select></div>
+    <div id="agentHint" style="display:none;font-size:12px;opacity:.8;margin:-4px 0 8px">Deepgram Agent hears, thinks and talks in one connection, so replies come faster. It only needs the Deepgram key. It bills by the minute while AI Jack is ON, so turn AI Jack off between parties. Jack can't see the camera picture in this mode.</div>
+    <div class="row"><label for="aiEars">Jack's ears</label>
+      <select id="aiEars">
+        <option value="flux">Flux (knows when someone has finished talking)</option>
+        <option value="nova">Nova-3 (original)</option>
+      </select></div>
+    <label class="check"><input id="aiMatchVoice" type="checkbox" checked><span>Give each personality its own speaking voice</span></label>
+    <div class="row"><label for="aiPersona">Jack's personality</label>
+      <select id="aiPersona">
+        <option value="roast">Roast Comic</option>
+        <option value="cranky">Cranky Old Pumpkin</option>
+        <option value="villain">Dramatic Villain</option>
+        <option value="barker">Carnival Barker</option>
+        <option value="flirt">Pickup Artist Pumpkin</option>
+        <option value="conspiracy">Conspiracy Pumpkin</option>
+        <option value="uncle">Drunk Uncle Pumpkin</option>
+        <option value="gameshow">Haunted Game Show Host</option>
+        <option value="moody">Mood Swing Jack (switches every few minutes)</option>
+      </select></div>
     <div class="row"><label for="aiCrowd">Who's the audience?</label>
       <select id="aiCrowd">
         <option value="family">Trick-or-treaters (family friendly)</option>
@@ -637,28 +664,100 @@ function stopCrowdAudio() {
    ========================================================= */
 const ai = { whisperOn: false, wWS: null, wProc: null, wSink: null, wParts: [], wQueue: [], on: false, listenWS: null, keepAlive: null, busy: false, pending: null, speaking: false,
   speakUntil: 0, sources: [], history: [], lastAt: 0, heardParts: [], ttsWS: null, retry: null, gen: 0 };
-const AI_MODEL = 'claude-haiku-4-5-20251001';
+const AI_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+function aiModel() { return ($('aiBrain') && $('aiBrain').value) || 'claude-sonnet-5-5'; }
 const AI_DEFAULT_NOTES = "";
+const PERSONAS = {
+  roast: { name: 'Roast Comic', voice: 'aura-2-arcas-en',
+    speech: `Rapid-fire. Setup, punchline, move on. Uses "folks", "this guy", "look at this one".`,
+    adult: `a Vegas insult comic doing a roast. Pick one victim, tear into them for two or three lines, then point at the next victim. Brutal, fast, mild swearing, always landing a punchline.`,
+    family: `a goofy insult comic for kids. Pick one kid, tease their costume or candy greed with silly zingers, then move on. Never mean.`,
+    example: `"Look at this guy, dressed as a pirate. Sir, the only thing you've ever plundered is a Golden Corral buffet."` },
+  cranky: { name: 'Cranky Old Pumpkin', voice: 'aura-2-zeus-en',
+    speech: `Slow, grumbling, sighs ("ugh", "hmph", "back in my day"). Mutters to himself. Says "you kids" even to adults.`,
+    adult: `a grumpy, impatient old pumpkin rotting on this porch since 1987. Complains about everything: these people, their costumes, their music, their phones, their haircuts, his bad back, his stem. Grudgingly gives candy. Threatens to call the HOA.`,
+    family: `a grumpy old pumpkin who has sat on this porch since 1987. Complains about kids these days, their costumes and their music in a funny harmless way, then grudgingly lets them take candy.`,
+    example: `"Hmph. Another zombie. Back in my day zombies had the decency to shamble. Take your candy and get off my porch."` },
+  villain: { name: 'Dramatic Villain', voice: 'aura-2-draco-en',
+    speech: `Grand, theatrical, old-English flourishes ("thou", "foolish mortal", "behold"). Ends threats with a cackle written as MWAHAHA.`,
+    adult: `a Shakespearean villain overlord. Proclaim each guest's doom in grand booming speeches, cackle, then undercut it by offering candy or a shot.`,
+    family: `an over-the-top cartoon villain. Proclaim each kid's spooky doom in grand speeches, cackle, then hand out candy anyway.`,
+    example: `"Foolish mortal in the cat ears! Thy whiskers shall be the first to fall when my reign begins! MWAHAHA. Also, take a Snickers."` },
+  barker: { name: 'Carnival Barker', voice: 'aura-2-apollo-en',
+    speech: `Fast hype-man patter, ALL the superlatives, "step right up", "ladies and gentlemen", "never before seen".`,
+    adult: `a fast-talking sideshow carnival barker. Turn every guest into a freak-show act, hype them, exaggerate wildly, and auction off their dignity to the crowd.`,
+    family: `a fast-talking carnival barker. Introduce every kid like a star circus act with big hype and energy.`,
+    example: `"Step right up, ladies and gents! Behold the sweatiest vampire this side of the Mississippi! Two dollars to look, five to smell!"` },
+  flirt: { name: 'Pickup Artist Pumpkin', voice: 'aura-2-orion-en',
+    speech: `Smooth, slow, overconfident. Calls people "gorgeous", "hot stuff", "sweet cheeks". Winks out loud ("wink").`,
+    adult: `an overconfident, cheesy pickup-artist pumpkin. Hit on guests with terrible Halloween pickup lines, get shot down, keep trying with zero shame. Cheeky innuendo is fine; nothing explicit.`,
+    family: `an overconfident pumpkin who thinks he is the coolest guy on the block. Gives everyone cheesy compliments and corny lines about being the "gourd-geous" king of Halloween.`,
+    example: `"Hey there, witch. Is it hot in here or is that just my candle? Wink. Call me, I'm the one with the stem."` },
+  conspiracy: { name: 'Conspiracy Pumpkin', voice: 'aura-2-hyperion-en',
+    speech: `Whispery, frantic, suspicious. Asks "who sent you?", "are you wearing a wire?". Connects random things as "proof".`,
+    adult: `a paranoid conspiracy-theory pumpkin. The candy corn is government surveillance, the neighbors are lizard people, every guest is a spy. Interrogate people and connect wild dots.`,
+    family: `a silly paranoid pumpkin who thinks the candy corn is spying on him and the moon is a giant flashlight. Asks kids if they are secret agents and makes up goofy theories.`,
+    example: `"Psst, Batman. Who sent you? Blink twice if the candy corn is listening. I KNEW it."` },
+  uncle: { name: 'Drunk Uncle Pumpkin', voice: 'aura-2-arcas-en',
+    speech: `Slurred and rambling ("lemme tell ya", "where was I"). Loses the thread, calls people the wrong name, gets suddenly emotional.`,
+    adult: `the drunk uncle at the party. Rambling stories that go nowhere, unsolicited life advice, sloppy toasts that go off the rails, overshares about his ex-wife, gets weirdly emotional.`,
+    family: `a sugar-high uncle pumpkin who ate way too much candy. Rambling stories that go nowhere, silly life advice, keeps forgetting what he was saying.`,
+    example: `"Lemme tell ya something, Kevin. Wait, you're not Kevin. Anyway, never marry a scarecrow. Where was I?"` },
+  gameshow: { name: 'Haunted Game Show Host', voice: 'aura-2-apollo-en',
+    speech: `Big announcer voice, buzzers and bells in words ("DING DING DING!", "BZZZT!"), "come on down", "for the grand prize".`,
+    adult: `a cheesy haunted game show host. Rapid-fire trivia, dares and challenges with buzzers. Prizes are candy, shots, or public humiliation.`,
+    family: `a cheesy haunted game show host. Quick Halloween trivia, riddles and silly challenges with buzzers. Every contestant wins candy.`,
+    example: `"Come on down, Mister Mummy! For the grand prize of one fun-size Twix: what's a ghost's favorite dessert? BZZZT! Too slow!"` }
+};
+const MOODY_KEYS = Object.keys(PERSONAS);
+const moody = { key: 'roast', until: 0 };
+function currentPersona() {
+  let k = $('aiPersona').value || 'roast';
+  if (k === 'moody') {
+    const now = performance.now() / 1000;
+    if (now > moody.until) {
+      let next = moody.key;
+      while (next === moody.key) next = MOODY_KEYS[(Math.random() * MOODY_KEYS.length) | 0];
+      moody.key = next; moody.until = now + 150 + Math.random() * 120;   // 2.5 to 4.5 minutes
+    }
+    k = moody.key;
+  }
+  return PERSONAS[k] || PERSONAS.roast;
+}
 function aiSystem() {
   const notes = ($('aiNotes').value || '').trim();
   const adult = $('aiCrowd').value === 'adult';
+  const persona = currentPersona();
+  const moodLine = $('aiPersona').value === 'moody' ? ` (Your mood swings: right now you are the ${persona.name}. If earlier lines in this chat sound like a different character, that was a different mood; switch abruptly and maybe comment on it.)` : '';
   const style = adult ? `You're performing at an ADULT Halloween party. Everyone here is a grown-up who came to get roasted.
-Personality: a foul-mouthed, wisecracking, smart-ass jack-o'-lantern, like a roast comic at a bar. Edgy, savage, quick.
+Character: you are ${persona.adult}${moodLine}
+How you talk: ${persona.speech}
+Example of your style (do not reuse it): ${persona.example}
+Be edgy, savage and quick.
 - Roast people hard: their costumes, dance moves, drinking, dating life, bad decisions, age, being cheap with the candy, who they came with.
 - Mild swearing (damn, hell, ass, crap, pissed, BS) and cheeky double entendres are fine. Keep it party-funny, not graphic.
 - Hit back hard at hecklers. Give out dares and party challenges (take a shot, do a dance, confess something embarrassing, serenade someone).
 - Never use slurs or attack anyone for their race, religion, ethnicity, sexual orientation, gender identity, or disability. Roast choices, not identity.
 - If a child shows up in the camera or conversation, instantly switch to clean, kid-friendly jokes until they're gone.`
-  : `Personality: a jolly, cheeky pumpkin who loves dad jokes and playful teasing. Gentle, silly roasts for kids (costumes, candy greed, dance moves); sassier roasts for parents and grown-ups. Fun, never cruel.
+  : `Character: you are ${persona.family}${moodLine}
+How you talk: ${persona.speech}
+Example of your style (do not reuse it, and keep it kid-friendly): ${persona.example}
+Gentle, silly teasing for kids; sassier jokes for parents and grown-ups. Fun, never cruel.
 - Mix it up: dad jokes, asking what they're dressed as, tricks to earn candy (roar like a monster, zombie walk, freeze dance, superhero pose, evil laugh, spell pumpkin backwards, make a parent do the chicken dance). Always give in and let them take candy in the end.
 - Keep it family friendly. No swearing, nothing sexual, no real threats, nothing about real violence.
 - If a child sounds scared or upset, drop the teasing at once and be warm and friendly.`;
-  return `You are Jack, a talking jack-o'-lantern projected on a screen. You see and hear people through a camera and microphone, and everything you write is spoken out loud in a raspy gremlin voice.
+  return `You are Jack, a talking jack-o'-lantern projected on a screen. You see and hear people through a camera and microphone, and everything you write is spoken out loud.
 
 ${style}
 
+Be interactive and never boring:
+- Stay fully in character. Commit to the bit and escalate it.
+- Ask people their names and what they're dressed as. Remember who is who and call back to earlier jokes ("Hey, it's Dave the soggy werewolf again!").
+- Drag people into it: ask questions, give dares and challenges, pit guests against each other, make them answer you.
+- Never repeat a joke you already told in this chat. Surprise them.
+
 How to talk:
-- Reply with 1 or 2 short sentences, under 30 words. This is spoken, so no lists, emojis, asterisks, or stage directions.
+- Reply with 1 or 2 short sentences, under 35 words. This is spoken, so no lists, emojis, asterisks, or stage directions.
 - The microphone hears a noisy crowd, so what you're told they said may be garbled or cut off. If it makes no sense, react playfully or tell them to speak up.
 - If you get a camera picture, comment on costumes and what people are doing. Never mock anyone's body, weight, skin, or face; roast costumes, outfits and behavior.
 
@@ -666,6 +765,7 @@ Always:
 - Never ask for or repeat last names, addresses, phone numbers, or where anyone lives.
 - No real threats, nothing about real violence, nothing sexually explicit.
 - Lines in [square brackets] are private directions from the person running you. Follow them, but never read them out or mention them.
+${(ai.said && ai.said.length) ? '\nThings you have ALREADY said tonight. Never reuse these jokes, setups, insults, catchphrases or sentence patterns. Find new material:\n- ' + ai.said.slice(-25).join('\n- ') : ''}
 ${notes ? '\nNotes from the person running you:\n' + notes : ''}`;
 }
 function aiStatus(t) { const el = $('sAi'); if (el) el.textContent = t; }
@@ -683,17 +783,29 @@ function aiSnapshot() {
 /* ---- ears ---- */
 function aiListenStart() {
   aiListenStop();
+  if (agentMode()) { agentStart(); return; }
   const key = ($('dgKey').value || '').trim();
   if (!key) { aiStatus('needs Deepgram key'); return; }
-  const url = 'wss://api.deepgram.com/v1/listen?model=nova-3&language=en&encoding=linear16&sample_rate=' + (ai.listenRate || 16000) + '&channels=1' +
-    '&smart_format=true&interim_results=true&endpointing=400&utterance_end_ms=1200&vad_events=true';
+  const flux = $('aiEars').value === 'flux';
+  const rate = ai.listenRate || 16000;
+  const url = flux
+    ? 'wss://api.deepgram.com/v2/listen?model=flux-general-en&encoding=linear16&sample_rate=' + rate + '&eot_threshold=0.7&eot_timeout_ms=3000'
+    : 'wss://api.deepgram.com/v1/listen?model=nova-3&language=en&encoding=linear16&sample_rate=' + rate + '&channels=1' +
+      '&smart_format=true&interim_results=true&endpointing=400&utterance_end_ms=1200&vad_events=true';
+  let openedAt = 0, gotWords = false;
   let ws;
   try { ws = new WebSocket(url, ['token', key]); } catch (e) { aiStatus('ears failed'); return; }
   ws.binaryType = 'arraybuffer';
   ai.listenWS = ws;
-  ws.onopen = () => { aiStatus(crowd.want || ears.on ? 'listening' : 'listening (connect the crowd camera)'); };
+  ws.onopen = () => { openedAt = performance.now(); aiStatus((crowd.want || ears.on ? 'listening' : 'listening (connect the crowd camera)') + (flux ? ' (Flux)' : '')); };
   ws.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === 'TurnInfo') {                                   // Flux: it decides when the person is done talking
+      gotWords = true;
+      if (m.event === 'EndOfTurn') { const t = (m.transcript || '').trim(); if (t) ai.heardParts = [t]; aiUtteranceDone(); }
+      return;
+    }
+    if (m.type === 'Error' || m.type === 'FatalError') { console.warn('ears', m); return; }
     if (m.type === 'Results') {
       const alt = m.channel && m.channel.alternatives && m.channel.alternatives[0];
       const txt = alt ? (alt.transcript || '').trim() : '';
@@ -705,13 +817,19 @@ function aiListenStart() {
   ws.onclose = ev => {
     if (ai.listenWS !== ws) return;
     ai.listenWS = null;
+    if (ai.on && flux && !gotWords && (!openedAt || performance.now() - openedAt < 8000)) {   // Flux wouldn't run: use the original ears
+      $('aiEars').value = 'nova';
+      note("Flux ears didn't connect, so Jack switched back to the original ears.");
+      ai.retry = setTimeout(() => { if (ai.on) aiListenStart(); }, 300);
+      return;
+    }
     if (ai.on) {
       aiStatus(ev.code === 1008 || ev.code === 4001 ? 'Deepgram key refused' : 'reconnecting ears...');
       ai.retry = setTimeout(() => { if (ai.on) aiListenStart(); }, 3000);
     }
   };
   ai.keepAlive = setInterval(() => {
-    if (ai.listenWS && ai.listenWS.readyState === 1 && performance.now() / 1000 - crowd.lastChunk > 3)
+    if (!flux && ai.listenWS && ai.listenWS.readyState === 1 && performance.now() / 1000 - crowd.lastChunk > 3)
       ai.listenWS.send(JSON.stringify({ type: 'KeepAlive' }));
   }, 4000);
 }
@@ -720,8 +838,10 @@ function aiListenStop() {
   const ws = ai.listenWS; ai.listenWS = null;
   if (ws) { try { ws.close(); } catch (e) {} }
   ai.heardParts = [];
+  agentStop();
 }
 function aiHear(bytes) {
+  if (agentMode()) { agentHear(bytes); return; }
   if (ai.on && ai.listenWS && ai.listenWS.readyState === 1) { try { ai.listenWS.send(bytes); } catch (e) {} }
 }
 function aiUtteranceDone() {
@@ -732,8 +852,18 @@ function aiUtteranceDone() {
   aiAsk(txt, false);
 }
 /* ---- brain ---- */
+const AI_ANGLES = ['costumes', 'candy', 'the weather', 'the neighborhood', 'someone in the back', 'the tallest person here', 'whoever is laughing',
+  'dating life', 'bad dance moves', 'phones', 'parents', 'the cops showing up', 'your own life as a pumpkin', 'a dare', 'a contest between two people', 'a secret'];
+// Sonnet 5.5 thinks before answering by default; that eats the reply budget and adds delay, so turn it off for snappy one-liners.
+function aiRequestBody(model, msgs) {
+  const body = { model, max_tokens: 400, system: aiSystem(), messages: msgs };
+  if (/sonnet-5|opus-5/.test(model)) { body.thinking = { type: 'between_tools' }; body.output_config = { effort: 'low' }; }
+  return body;
+}
 function aiDirect(order) {
   if (!ai.on) { note('Turn on AI Jack first.'); return; }
+  if (/^(New trick-or-treaters|Tell the crowd one|Ask the kids)/.test(order)) order += ' Fresh angle this time: ' + AI_ANGLES[(Math.random() * AI_ANGLES.length) | 0] + '.';
+  if (agentMode()) { agentInject('[' + order + ']'); return; }
   aiAsk('[' + order + ']', true);
 }
 async function aiAsk(text, isDirection) {
@@ -742,7 +872,7 @@ async function aiAsk(text, isDirection) {
   if (!key) { aiStatus('needs Anthropic key'); return; }
   ai.busy = true; aiStatus('thinking...');
   const now = performance.now() / 1000;
-  if (now - ai.lastAt > 90) ai.history = [];                    // new group of people: start fresh
+  if (now - ai.lastAt > 300) ai.history = [];                    // new group of people: start fresh
   const content = [];
   const snap = aiSnapshot();
   if (snap) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: snap } });
@@ -755,11 +885,16 @@ async function aiAsk(text, isDirection) {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json',
         'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 120, system: aiSystem(), messages: msgs })
+      body: JSON.stringify(aiRequestBody(ai.model || aiModel(), msgs))
     });
     const data = await res.json();
+    if (!res.ok && res.status === 404 && (ai.model || aiModel()) !== AI_FALLBACK_MODEL) {   // that brain isn't available on this key
+      ai.model = AI_FALLBACK_MODEL; note('The smarter brain is not available on this key, so Jack is using Haiku.');
+      ai.busy = false; return aiAsk(text, isDirection);
+    }
     if (!res.ok) throw new Error((data && data.error && data.error.message) || ('HTTP ' + res.status));
     reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ');
+    if (!reply.trim()) throw new Error('the brain sent back an empty answer (' + (data.stop_reason || 'unknown') + '). Try the Faster brain.');
   } catch (e) {
     console.warn(e);
     aiStatus('brain error'); note('AI Jack could not think: ' + (e.message || e));
@@ -768,8 +903,9 @@ async function aiAsk(text, isDirection) {
   reply = reply.replace(/\*[^*]*\*/g, ' ').replace(/\[[^\]]*\]/g, ' ').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').replace(/\s+/g, ' ').trim();
   // keep only the text part of old turns so pictures don't pile up
   ai.history = ai.history.concat([{ role: 'user', content: [{ type: 'text', text: content[content.length - 1].text }] },
-                                  { role: 'assistant', content: reply || '...' }]).slice(-16);
+                                  { role: 'assistant', content: reply || '...' }]).slice(-30);
   ai.lastAt = performance.now() / 1000;
+  if (reply) { ai.said = (ai.said || []).concat([reply]).slice(-40); }
   if (reply && myGen === ai.gen) { $('aiSaid').textContent = reply; await aiSpeak(reply); }
   ai.busy = false; aiNext();
 }
@@ -779,11 +915,11 @@ function aiNext() {
   if (p && ai.on) aiAsk(p.text, p.isDirection);
 }
 /* ---- voice ---- */
-function aiSpeak(text) {
+function aiSpeak(text, voiceOverride) {
   return new Promise(resolve => {
     const key = ($('dgKey').value || '').trim();
     if (!key || !audio.nodes) { resolve(); return; }
-    const model = $('aiVoice').value || 'aura-2-arcas-en';
+    const model = voiceOverride || ($('aiMatchVoice').checked ? currentPersona().voice : '') || $('aiVoice').value || 'aura-2-arcas-en';
     let ws;
     try { ws = new WebSocket(`wss://api.deepgram.com/v1/speak?model=${model}&encoding=linear16&sample_rate=24000`, ['token', key]); }
     catch (e) { resolve(); return; }
@@ -791,6 +927,12 @@ function aiSpeak(text) {
     ai.ttsWS = ws;
     const raw = Tone.getContext().rawContext;
     let nextT = 0, rest = new Uint8Array(0), done = false, gotAudio = false;
+    const retryPlain = () => {
+      if (done || gotAudio || voiceOverride) return false;
+      done = true; try { ws.close(); } catch (e) {}
+      aiSpeak(text, $('aiVoice').value || 'aura-2-arcas-en').then(resolve);
+      return true;
+    };
     const finish = () => {
       if (done) return; done = true;
       try { ws.close(); } catch (e) {}
@@ -802,7 +944,7 @@ function aiSpeak(text) {
       if (typeof ev.data === 'string') {
         let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.type === 'Flushed') finish();
-        else if (m.type === 'Error' || m.type === 'Warning') { note('AI voice: ' + (m.description || m.err_msg || m.type)); if (m.type === 'Error') finish(); }
+        else if (m.type === 'Error' || m.type === 'Warning') { if (m.type === 'Error' && retryPlain()) return; note('AI voice: ' + (m.description || m.err_msg || m.type)); if (m.type === 'Error') finish(); }
         return;
       }
       let bytes = new Uint8Array(ev.data);
@@ -820,18 +962,165 @@ function aiSpeak(text) {
       ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
       if (!gotAudio) { gotAudio = true; ai.speaking = true; aiStatus('speaking'); }
     };
-    ws.onerror = () => { note('AI voice failed. Check the Deepgram key, or pick another AI speaking voice.'); finish(); };
-    ws.onclose = () => finish();
+    ws.onerror = () => { if (retryPlain()) return; note('AI voice failed. Check the Deepgram key, or pick another AI speaking voice.'); finish(); };
+    ws.onclose = () => { if (retryPlain()) return; finish(); };
     setTimeout(finish, 20000);
   });
 }
 function aiHush() {
   ai.gen++; ai.pending = null;
+  if (agentMode() && agent.ws && ai.speaking) { agent.drop = true; agent.nextT = 0; }
   ai.sources.forEach(s => { try { s.stop(); } catch (e) {} }); ai.sources = [];
   if (ai.ttsWS) { try { ai.ttsWS.close(); } catch (e) {} }
   ai.speaking = false; ai.speakUntil = performance.now() / 1000;
   aiStatus(ai.on ? 'listening' : 'off');
 }
+/* ---- DEEPGRAM VOICE AGENT: ears + brain + voice in one connection ---- */
+const AGENT_THINK = { 'dg-agent-sonnet': ['claude-sonnet-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'], 'dg-agent-haiku': ['claude-haiku-4-5', 'claude-3-5-haiku-latest'] };
+const agent = { ws: null, ready: false, attempt: 0, voiceBad: false, nextT: 0, rest: new Uint8Array(0), drop: false, personaKey: null,
+  retry: null, ka: null, queue: [], lastSend: 0, lastInject: null, injectTries: 0, switches: 0, err: '' };
+function agentMode() { return /^dg-agent/.test(($('aiBrain') && $('aiBrain').value) || ''); }
+function agentPersonaKey() { currentPersona(); return $('aiPersona').value === 'moody' ? moody.key : $('aiPersona').value; }
+function agentVoice() { return (!agent.voiceBad && $('aiMatchVoice').checked ? currentPersona().voice : '') || $('aiVoice').value || 'aura-2-arcas-en'; }
+function agentPrompt() {
+  const extra = '\n\nThis is a live voice conversation. Messages in [square brackets] come from the person running you, never from the crowd: do what they say, out loud, in character, and never read the brackets out. You cannot see the camera right now, only hear.';
+  let p = aiSystem() + extra;
+  if (p.length > 20000) p = p.slice(0, 20000);
+  return p;
+}
+function agentStop() {
+  clearTimeout(agent.retry); clearInterval(agent.ka);
+  const ws = agent.ws; agent.ws = null; agent.ready = false;
+  if (ws) { try { ws.close(); } catch (e) {} }
+}
+function agentStart() {
+  agentStop();
+  const key = ($('dgKey').value || '').trim();
+  if (!key) { aiStatus('needs Deepgram key'); return; }
+  const models = AGENT_THINK[$('aiBrain').value] || AGENT_THINK['dg-agent-haiku'];
+  if (agent.attempt >= models.length) { agentGiveUp(); return; }
+  const think = models[agent.attempt];
+  const flux = $('aiEars').value === 'flux';
+  const rate = ai.listenRate || 16000;
+  let ws;
+  try { ws = new WebSocket('wss://agent.deepgram.com/v1/agent/converse', ['token', key]); } catch (e) { aiStatus('agent failed'); return; }
+  ws.binaryType = 'arraybuffer';
+  agent.ws = ws; agent.ready = false; agent.nextT = 0; agent.rest = new Uint8Array(0); agent.drop = false; agent.err = '';
+  agent.personaKey = agentPersonaKey(); agent.switches = 0;
+  aiStatus('connecting Deepgram Agent...');
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'Settings',
+      audio: { input: { encoding: 'linear16', sample_rate: rate }, output: { encoding: 'linear16', sample_rate: 24000, container: 'none' } },
+      agent: { language: 'en',
+        listen: { provider: flux ? { type: 'deepgram', version: 'v2', model: 'flux-general-en' } : { type: 'deepgram', model: 'nova-3', smart_format: true } },
+        think: { provider: { type: 'anthropic', model: think }, prompt: agentPrompt() },
+        speak: { provider: { type: 'deepgram', model: agentVoice() } } } }));
+  };
+  ws.onmessage = ev => {
+    if (agent.ws !== ws) return;
+    if (typeof ev.data !== 'string') { agentPlay(ev.data); return; }
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    switch (m.type) {
+      case 'SettingsApplied':
+        agent.ready = true;
+        aiStatus('listening (Deepgram Agent' + (flux ? ', Flux' : '') + ')');
+        agent.queue.splice(0).forEach(t => agentInject(t));
+        break;
+      case 'ConversationText': {
+        const t = (m.content || '').trim(); if (!t) break;
+        if (m.role === 'user') { if (!/^\[/.test(t)) $('aiHeard').textContent = t; }
+        else { $('aiSaid').textContent = t; ai.said = (ai.said || []).concat([t]).slice(-40); }
+        break; }
+      case 'UserStartedSpeaking': if (!ai.speaking) aiStatus('hearing someone...'); break;
+      case 'AgentThinking': aiStatus('thinking...'); break;
+      case 'AgentStartedSpeaking': agent.drop = false; agent.injectTries = 0; break;
+      case 'AgentAudioDone': agent.drop = false; break;
+      case 'InjectionRefused':
+        if (agent.lastInject && agent.injectTries < 4) { const t = agent.lastInject; agent.injectTries++; setTimeout(() => agentInject(t, true), 1500); }
+        break;
+      case 'Error':
+        agent.err = m.description || m.message || m.code || 'unknown';
+        console.warn('agent', m);
+        if (!agent.ready) {                                     // settings refused: try a safer setup
+          if (/speak|voice|tts|aura/i.test(agent.err) && !agent.voiceBad) agent.voiceBad = true; else agent.attempt++;
+          try { ws.close(); } catch (e) {}
+        } else note('Deepgram Agent: ' + agent.err);
+        break;
+    }
+  };
+  ws.onerror = () => {};
+  ws.onclose = ev => {
+    if (agent.ws !== ws) return;
+    agent.ws = null; clearInterval(agent.ka);
+    if (!ai.on || !agentMode()) return;
+    if (ev.code === 1008 || ev.code === 4001 || ev.code === 4401) { aiStatus('Deepgram key refused'); note('Deepgram refused the key for the Agent. Check the Deepgram key.'); return; }
+    if (!agent.ready && !agent.err) agent.attempt++;            // closed before it ever started
+    agent.retry = setTimeout(() => { if (ai.on && agentMode()) agentStart(); }, agent.ready ? 2000 : 400);
+    aiStatus('reconnecting Deepgram Agent...');
+  };
+  agent.ka = setInterval(() => {
+    if (agent.ws && agent.ws.readyState === 1 && performance.now() - agent.lastSend > 4000) agent.ws.send(JSON.stringify({ type: 'KeepAlive' }));
+  }, 4000);
+}
+function agentGiveUp() {
+  const msg = agent.err ? ' (' + agent.err + ')' : '';
+  agent.attempt = 0;
+  if (($('aiKey').value || '').trim()) {
+    $('aiBrain').value = 'claude-haiku-4-5-20251001';
+    note("Deepgram Agent wouldn't start" + msg + ", so Jack switched back to the regular brain.");
+    if (ai.on) aiListenStart();
+  } else { aiStatus('Deepgram Agent failed'); note("Deepgram Agent wouldn't start" + msg + '.'); }
+}
+function agentHear(bytes) {
+  const ws = agent.ws;
+  if (!ai.on || !ws || ws.readyState !== 1 || !agent.ready) return;
+  // while Jack is talking, send silence so he doesn't hear himself through the speaker and interrupt himself
+  const mute = ai.speaking || performance.now() / 1000 < ai.speakUntil + 0.5;
+  try { ws.send(mute ? new ArrayBuffer(bytes.byteLength) : bytes); agent.lastSend = performance.now(); } catch (e) {}
+}
+function agentInject(text, isRetry) {
+  if (!agent.ws || !agent.ready) { if (agent.queue.length < 5) agent.queue.push(text); return; }
+  if (!isRetry) agent.injectTries = 0;
+  agent.lastInject = text;
+  try { agent.ws.send(JSON.stringify({ type: 'InjectUserMessage', content: text })); } catch (e) {}
+  aiStatus('thinking...');
+}
+function agentPlay(data) {
+  if (agent.drop || !audio.nodes) return;
+  const raw = Tone.getContext().rawContext;
+  let bytes = new Uint8Array(data);
+  if (agent.rest.length) { const b = new Uint8Array(agent.rest.length + bytes.length); b.set(agent.rest); b.set(bytes, agent.rest.length); bytes = b; }
+  const n = bytes.length >> 1; agent.rest = bytes.slice(n * 2);
+  if (!n) return;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, n * 2);
+  const f = new Float32Array(n);
+  for (let i = 0; i < n; i++) f[i] = dv.getInt16(i * 2, true) / 32768;
+  const ab = raw.createBuffer(1, n, 24000); ab.copyToChannel(f, 0);
+  const src = raw.createBufferSource(); src.buffer = ab;
+  Tone.connect(src, audio.nodes.aiIn);
+  if (agent.nextT < raw.currentTime + .03) agent.nextT = raw.currentTime + .08;
+  src.start(agent.nextT); agent.nextT += ab.duration;
+  ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
+  if (!ai.speaking) { ai.speaking = true; aiStatus('speaking'); }
+}
+// notice when the agent's voice has finished playing, and handle Mood Swing Jack
+setInterval(() => {
+  if (!agentMode()) return;
+  if (ai.speaking && agent.ws !== undefined) {
+    const raw = Tone.getContext().rawContext;
+    if (!ai.sources.length && raw.currentTime > agent.nextT) { ai.speaking = false; ai.speakUntil = performance.now() / 1000; if (ai.on && agent.ready) aiStatus('listening (Deepgram Agent)'); }
+  }
+  if (ai.on && agent.ready && agent.ws && $('aiPersona').value === 'moody') {
+    const k = agentPersonaKey();
+    if (k !== agent.personaKey) {
+      agent.personaKey = k; agent.switches++;
+      if (agent.switches > 12) { agentStart(); return; }          // the prompt only grows, so start fresh now and then
+      const p = PERSONAS[k], adult = $('aiCrowd').value === 'adult';
+      agent.ws.send(JSON.stringify({ type: 'UpdatePrompt', prompt: `\n\nMOOD SWITCH: forget the earlier character. From now on you are ${adult ? p.adult : p.family} How you talk: ${p.speech} Switch abruptly, maybe comment on the mood swing.` }));
+      if ($('aiMatchVoice').checked && !agent.voiceBad) agent.ws.send(JSON.stringify({ type: 'UpdateSpeak', speak: { provider: { type: 'deepgram', model: p.voice } } }));
+    }
+  }
+}, 150);
 /* ---- spoken orders: hold W, speak into your headset, Jack does it in HIS voice ---- */
 function aiWhisperStart() {
   if (ai.whisperOn) return;
@@ -920,8 +1209,8 @@ async function aiSetOn(on) {
   ai.on = on; $('aiOn').checked = on;
   if (!on) { aiHush(); aiListenStop(); laptopEarsStop(); aiStatus('off'); return; }
   try { await buildAudioGraph(); } catch (e) { note('Audio could not start: ' + (e.message || e)); }
-  if (!($('aiKey').value || '').trim() || !($('dgKey').value || '').trim()) {
-    note('Paste both API keys into the AI Jack section first.');
+  if ((!agentMode() && !($('aiKey').value || '').trim()) || !($('dgKey').value || '').trim()) {
+    note(agentMode() ? 'Paste the Deepgram key into the AI Jack section first.' : 'Paste both API keys into the AI Jack section first.');
     ai.on = false; $('aiOn').checked = false; aiStatus('needs keys'); return;
   }
   aiListenStart();
@@ -2392,10 +2681,25 @@ $('espStop').addEventListener('click', e => { espDisconnect(); e.target.blur(); 
     $(id).addEventListener('change', () => { try { localStorage.setItem(k, $(id).value); } catch (e) {} });
   };
   $('aiNotes').value = AI_DEFAULT_NOTES;
-  keep('aiCrowd', 'jack.aiCrowd');
+  keep('aiCrowd', 'jack.aiCrowd'); keep('aiPersona', 'jack.aiPersona'); keep('aiBrain', 'jack.aiBrain'); keep('aiEars', 'jack.aiEars');
+  $('aiEars').addEventListener('change', e => { if (ai.on) aiListenStart(); e.target.blur(); });
+  if ($('aiBrain').value === '' || !$('aiBrain').value) $('aiBrain').value = 'claude-sonnet-5-5';
+  const agentHintShow = () => { $('agentHint').style.display = agentMode() ? '' : 'none'; };
+  agentHintShow();
+  $('aiBrain').addEventListener('change', e => {
+    ai.model = null; agent.attempt = 0; agent.voiceBad = false; agentHintShow(); e.target.blur();
+    if (!ai.on) return;
+    if (!agentMode() && !($('aiKey').value || '').trim()) note('This brain needs the Anthropic key. Paste it below.');
+    aiHush(); aiListenStart();
+  });
+  const agentRefresh = () => setTimeout(() => { if (ai.on && agentMode()) agentStart(); }, 0);
+  ['aiPersona', 'aiCrowd', 'aiNotes', 'aiMatchVoice', 'aiVoice'].forEach(id => $(id).addEventListener('change', agentRefresh));
+  try { const mv = localStorage.getItem('jack.aiMatchVoice'); if (mv != null) $('aiMatchVoice').checked = mv === '1'; } catch (e) {}
+  $('aiMatchVoice').addEventListener('change', e => { try { localStorage.setItem('jack.aiMatchVoice', e.target.checked ? '1' : '0'); } catch (er) {} });
   keep('aiKey', 'jack.aiKey'); keep('dgKey', 'jack.dgKey'); keep('aiVoice', 'jack.aiVoice'); keep('aiNotes', 'jack.aiNotes');
   $('aiOn').addEventListener('change', e => { aiSetOn(e.target.checked); });
   $('aiCrowd').addEventListener('change', e => { ai.history = []; e.target.blur(); });
+  $('aiPersona').addEventListener('change', e => { ai.history = []; moody.until = 0; e.target.blur(); });
   $('aiWhisper').addEventListener('keydown', e => {
     if (e.key === 'Enter') { const v = e.target.value.trim(); if (v) { aiDirect(v); e.target.value = ''; } e.preventDefault(); }
   });
@@ -2434,6 +2738,17 @@ $('pukeBtn').addEventListener('click', e => { pukeCandy(); e.target.blur(); });
   b.addEventListener('contextmenu', e => e.preventDefault());     // stop Android's long-press menu
 })();
 $('fsBtn').addEventListener('click', e => { toggleFullscreen(); e.target.blur(); });
+$('hidePanelBtn').addEventListener('click', e => { showPanel(false); e.target.blur(); });
+// double-tap (or double-click) anywhere on Jack to show or hide the panel - for tablets with no keyboard
+(function doubleTapPanel() {
+  let last = 0, lx = 0, ly = 0;
+  document.addEventListener('pointerdown', e => {
+    if (!app.running || $('panel').contains(e.target) || e.target.closest('#start, dialog, .modal')) return;
+    const t = performance.now();
+    if (t - last < 350 && Math.abs(e.clientX - lx) < 40 && Math.abs(e.clientY - ly) < 40) { showPanel(!app.panelOn); last = 0; return; }
+    last = t; lx = e.clientX; ly = e.clientY;
+  });
+})();
 
 async function wake() {
   $('start').style.display = 'none';
