@@ -120,7 +120,7 @@
       <div><b>B</b> or joystick button 2: boo!</div>
       <div><b>1 or 2</b> pick a voice &nbsp; <b>V</b> next voice &nbsp; <b>K</b> next character &nbsp; <b>M</b> crowd or copy-my-face</div>
       <div><b>T</b> push-to-talk on or off &nbsp; <b>C</b> center your face (copy-my-face mode) &nbsp; <b>F</b> full screen</div>
-      <div><b>H</b> hide panel &nbsp; <b>P</b> bigger crowd view</div>
+      <div><b>H</b> hide panel &nbsp; <b>P</b> bigger crowd view &nbsp; <b>Y</b> spooky background on/off</div>
     </div>
     <div id="startMsg"></div>
   </div>
@@ -149,6 +149,14 @@
       <option value="crowd">Watch the crowd</option>
       <option value="puppet">Copy my face</option>
     </select></div>
+  <div class="row"><label for="bgScene">Background scene</label>
+    <select id="bgScene">
+      <option value="graveyard">Foggy graveyard</option>
+      <option value="haunted">Haunted house, full moon</option>
+      <option value="forest">Spooky forest, bats</option>
+      <option value="patch">Pumpkin patch at night</option>
+    </select></div>
+  <label class="check"><input id="bgOn" type="checkbox"><span>Show the background scene behind Jack (Y)</span></label>
   <div class="row"><label for="voice">Voice (number keys 1 or 2 also pick one)</label><select id="voice"></select></div>
   <div class="row"><label for="micSel">Microphone</label><select id="micSel"></select></div>
   <div class="row"><label for="camSel">Laptop webcam (used for copy-my-face)</label><select id="camSel"></select></div>
@@ -217,7 +225,7 @@
     <div class="row"><label for="aiNotes">Tonight's notes for Jack (he follows these all night)</label>
       <textarea id="aiNotes" class="ainotes"></textarea></div>
     <div class="row"><label for="aiWhisper">Whisper to Jack (type an order, press Enter)</label>
-      <input id="aiWhisper" type="text" placeholder="e.g. Roast the guy in the cowboy hat" autocomplete="off" spellcheck="false"></div>
+      <input id="aiWhisper" type="text" placeholder="e.g. Call out for Doug now" autocomplete="off" spellcheck="false"></div>
     <div class="btns" style="margin:0 0 8px"><button id="aiTalkOrder" style="width:100%">Hold to give Jack a spoken order (or hold W)</button></div>
     <div class="btns" style="margin:0 0 8px">
       <button id="aiGreet" class="ghost">Greet (G)</button>
@@ -666,7 +674,9 @@ const ai = { whisperOn: false, wWS: null, wProc: null, wSink: null, wParts: [], 
   speakUntil: 0, sources: [], history: [], lastAt: 0, heardParts: [], ttsWS: null, retry: null, gen: 0 };
 const AI_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 function aiModel() { return ($('aiBrain') && $('aiBrain').value) || 'claude-sonnet-5-5'; }
-const AI_DEFAULT_NOTES = "";
+const AI_DEFAULT_NOTES = "Tonight: call out for Doug, the neighbor who lives out back. He's a man in his 60s. " +
+  "Every so often, when it's quiet, holler for Doug to come over. When Doug walks up, roast him hard but friendly, like old buddies " +
+  "(his age, being late, his outfit, his dad energy). Never mean-spirited.";
 const PERSONAS = {
   roast: { name: 'Roast Comic', voice: 'aura-2-arcas-en',
     speech: `Rapid-fire. Setup, punchline, move on. Uses "folks", "this guy", "look at this one".`,
@@ -1491,6 +1501,7 @@ function onKeyDown(e) {
     case 'KeyF': if (!e.repeat) toggleFullscreen((t && t.ownerDocument) || t || document); break;
     case 'KeyP': if (!e.repeat) toggleWide(); break;
     case 'KeyH': if (!e.repeat) showPanel(!app.panelOn); break;
+    case 'KeyY': if (!e.repeat) { scene.on = !scene.on; $('bgOn').checked = scene.on; try { localStorage.setItem('jack.bgOn', scene.on ? '1' : '0'); } catch (er) {} } break;
     case 'KeyG': if (!e.repeat) aiDirect('New trick-or-treaters just walked up. Greet them.'); break;
     case 'KeyJ': if (!e.repeat) aiDirect('Tell the crowd one Halloween dad joke.'); break;
     case 'KeyN': if (!e.repeat) aiDirect('Ask the kids in front of you to do a fun trick to earn their candy.'); break;
@@ -2521,11 +2532,175 @@ function drawPhoto(P, blur, now) {
   }
 }
 
+/* =========================================================
+   SPOOKY BACKGROUND SCENES (drawn full-screen, behind Jack)
+   ========================================================= */
+const scene = { on: false, kind: 'graveyard' };
+const SCENES = { graveyard: 'Foggy graveyard', haunted: 'Haunted house, full moon', forest: 'Spooky forest, bats', patch: 'Pumpkin patch at night' };
+function rnd(n) { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }   // deterministic 0..1, so layouts need no stored state
+function skyGrad(H, stops) { const g = ctx.createLinearGradient(0, 0, 0, H); stops.forEach(([p, c]) => g.addColorStop(p, c)); return g; }
+function sceneStars(W, H, n, seed, t, topFrac) {
+  for (let i = 0; i < n; i++) {
+    const x = rnd(seed + i * 2.1) * W, y = rnd(seed + i * 3.7) * H * topFrac;
+    const tw = .4 + .6 * Math.max(0, Math.sin(t * (.5 + rnd(seed + i) * 1.3) + i * 7));
+    ctx.globalAlpha = .15 + tw * .6; ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x, y, .6 + rnd(seed + i * 5.3) * 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function sceneMoon(cx, cy, r, phase) {   // phase near 1 = full moon, smaller (e.g. .3) = thin crescent
+  ctx.save();
+  const halo = ctx.createRadialGradient(cx, cy, r * .2, cx, cy, r * 2.4);
+  halo.addColorStop(0, 'rgba(255,248,224,.35)'); halo.addColorStop(1, 'rgba(255,248,224,0)');
+  ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, r * 2.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fbf3da';
+  if (phase >= .95) {
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(190,180,150,.3)';
+    [[-.32, -.18, .17], [.26, .12, .12], [-.05, .36, .09], [.36, -.32, .08]].forEach(([dx, dy, dr]) => {
+      ctx.beginPath(); ctx.arc(cx + dx * r, cy + dy * r, dr * r, 0, Math.PI * 2); ctx.fill();
+    });
+  } else {
+    // true crescent shape: outer limb is the full circle's right edge, inner terminator is a squashed ellipse
+    const rx = r * (1 - 2 * phase);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    ctx.ellipse(cx, cy, Math.abs(rx), r, 0, Math.PI / 2, -Math.PI / 2, rx > 0);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function sceneHill(W, H, baseY, amp, seed, color) {
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, H);
+  const steps = 12;
+  for (let i = 0; i <= steps; i++) ctx.lineTo(W * i / steps, baseY - amp * (.35 + .65 * rnd(seed + i)));
+  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+}
+function sceneFog(W, H, bandY, bandH, t, speed, alpha, seed, n) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  for (let i = 0; i < n; i++) {
+    const w = W * (.55 + rnd(seed + i) * .4), h = bandH * (.6 + rnd(seed + i + 9) * .7);
+    const x = ((t * speed * (.6 + rnd(seed + i + 3) * .8) + rnd(seed + i) * (W + w)) % (W + w)) - w / 2;
+    const y = bandY + (rnd(seed + i + 19) - .5) * bandH;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, w / 2);
+    g.addColorStop(0, 'rgba(205,212,218,.9)'); g.addColorStop(1, 'rgba(205,212,218,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function sceneTree(x, baseY, h, seed, color) {
+  ctx.strokeStyle = color; ctx.lineCap = 'round';
+  (function branch(cx, cy, len, ang, depth, sd) {
+    if (depth <= 0 || len < h * .08) return;
+    ctx.lineWidth = Math.max(1.4, len * .09);
+    const ex = cx + Math.cos(ang) * len, ey = cy + Math.sin(ang) * len;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+    for (let i = 0; i < 2; i++) branch(ex, ey, len * .68, ang + (rnd(sd + i) - .5) * 1.5 - .25, depth - 1, sd * 7 + i + 1);
+  })(x, baseY, h * .4, -Math.PI / 2, 4, seed);
+}
+function sceneTombstones(W, baseY, seed) {
+  const n = Math.max(4, Math.round(W / 190));
+  for (let i = 0; i < n; i++) {
+    const x = W * (i + .5) / n + (rnd(seed + i) - .5) * 70, w = 32 + rnd(seed + i + 9) * 26, h = 44 + rnd(seed + i + 19) * 44;
+    ctx.fillStyle = 'rgba(8,8,11,.93)';
+    ctx.beginPath(); ctx.moveTo(x - w / 2, baseY); ctx.lineTo(x - w / 2, baseY - h + w / 2);
+    ctx.arc(x, baseY - h + w / 2, w / 2, Math.PI, 0); ctx.lineTo(x + w / 2, baseY); ctx.closePath(); ctx.fill();
+  }
+}
+function scenePumpkins(W, baseY, seed, t) {
+  const n = Math.max(6, Math.round(W / 140));
+  for (let i = 0; i < n; i++) {
+    const x = W * (i + .5) / n + (rnd(seed + i) - .5) * 60, r = 14 + rnd(seed + i + 9) * 16;
+    const flick = .75 + .25 * Math.sin(t * 3 + i * 2);
+    ctx.fillStyle = 'rgba(255,' + (110 + (rnd(seed + i + 3) * 40 | 0)) + ',20,.85)';
+    ctx.beginPath(); ctx.ellipse(x, baseY - r * .6, r, r * .72, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,170,60,${.25 * flick})`;
+    ctx.beginPath(); ctx.ellipse(x, baseY - r * .6, r * 1.6, r * 1.15, 0, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function sceneBats(W, H, t, n, seed, topFrac) {
+  ctx.fillStyle = 'rgba(6,6,9,.92)';
+  for (let i = 0; i < n; i++) {
+    const spd = 55 + rnd(seed + i) * 65, dir = rnd(seed + i + 5) < .5 ? 1 : -1, span = W + 240;
+    const raw = ((t * spd + rnd(seed + i) * span) % span) - 120;
+    const x = dir > 0 ? raw : W - raw;
+    const y = H * .08 + rnd(seed + i + 1) * H * topFrac + Math.sin(t * 2.2 + i * 3) * 16;
+    const flap = Math.sin(t * 11 + i * 2), wing = 9 + rnd(seed + i + 2) * 7;
+    ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1);
+    ctx.beginPath(); ctx.moveTo(0, 2);
+    ctx.quadraticCurveTo(-wing * .6, -wing * (.3 + .5 * Math.abs(flap)) - 4, -wing * 1.7, 0);
+    ctx.quadraticCurveTo(-wing * .7, wing * .2, 0, 3);
+    ctx.quadraticCurveTo(wing * .7, wing * .2, wing * 1.7, 0);
+    ctx.quadraticCurveTo(wing * .6, -wing * (.3 + .5 * Math.abs(flap)) - 4, 0, 2);
+    ctx.fill(); ctx.restore();
+  }
+}
+function sceneHouse(cx, baseY, scaleH) {
+  const w = scaleH * 1.3, h = scaleH, roofH = h * .5;
+  ctx.fillStyle = 'rgba(15,13,22,.96)'; ctx.strokeStyle = 'rgba(150,140,180,.3)'; ctx.lineWidth = 1.5;
+  ctx.fillRect(cx - w / 2, baseY - h, w, h); ctx.strokeRect(cx - w / 2, baseY - h, w, h);
+  ctx.beginPath(); ctx.moveTo(cx - w / 2 - 10, baseY - h); ctx.lineTo(cx, baseY - h - roofH); ctx.lineTo(cx + w / 2 + 10, baseY - h); ctx.closePath(); ctx.fill(); ctx.stroke();
+  const tw = scaleH * .32, th = scaleH * 1.5;
+  ctx.fillRect(cx + w / 2 - tw * .3, baseY - th, tw, th); ctx.strokeRect(cx + w / 2 - tw * .3, baseY - th, tw, th);
+  ctx.beginPath(); ctx.moveTo(cx + w / 2 - tw * .3 - 6, baseY - th); ctx.lineTo(cx + w / 2 - tw * .3 + tw / 2, baseY - th - tw * .8); ctx.lineTo(cx + w / 2 + tw * .7 + 6, baseY - th); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+function sceneWindows(cx, baseY, scaleH, t, seed) {
+  const w = scaleH * 1.3, winAt = [[-.2, -.35], [.08, -.35], [-.2, -.1], [.08, -.1]];
+  winAt.forEach(([fx, fy], i) => {
+    const wx = cx + fx * w, wy = baseY + fy * scaleH;
+    const flick = .55 + .45 * Math.max(0, Math.sin(t * (1.1 + rnd(seed + i)) + i * 5));
+    ctx.fillStyle = `rgba(255,200,90,${.1 + flick * .65})`;
+    ctx.fillRect(wx, wy, scaleH * .14, scaleH * .18);
+  });
+}
+function drawScene(t, W, H) {
+  if (!scene.on) return;
+  const kind = scene.kind, baseY = H * .82;
+  ctx.save();
+  if (kind === 'graveyard') {
+    ctx.fillStyle = skyGrad(H, [[0, '#120a1c'], [.55, '#1c1230'], [1, '#241a1c']]); ctx.fillRect(0, 0, W, H);
+    sceneStars(W, H, 26, 101, t, .5);
+    sceneMoon(W * .82, H * .16, Math.min(W, H) * .055, .4);
+    sceneHill(W, H, baseY + H * .03, H * .09, 11, 'rgba(8,6,12,.9)');
+    sceneTree(W * .12, baseY, H * .3, 55, 'rgba(6,5,9,.95)');
+    sceneTree(W * .92, baseY, H * .22, 73, 'rgba(6,5,9,.95)');
+    sceneTombstones(W, baseY, 23);
+    sceneFog(W, H, baseY - H * .02, H * .14, t, 26, .3, 8, 3);
+  } else if (kind === 'haunted') {
+    ctx.fillStyle = skyGrad(H, [[0, '#0a0e22'], [.6, '#161328'], [1, '#1c1420']]); ctx.fillRect(0, 0, W, H);
+    sceneStars(W, H, 46, 211, t, .6);
+    sceneMoon(W * .68, H * .16, Math.min(W, H) * .09, 1);
+    sceneHill(W, H, baseY + H * .02, H * .05, 31, 'rgba(7,5,10,.9)');
+    sceneHouse(W * .14, baseY, H * .24); sceneWindows(W * .14, baseY, H * .24, t, 41);
+    sceneTree(W * .9, baseY, H * .22, 61, 'rgba(5,4,7,.95)');
+    sceneFog(W, H, baseY, H * .08, t, 16, .22, 4, 2);
+    sceneBats(W, H, t, 2, 303, .3);
+  } else if (kind === 'forest') {
+    ctx.fillStyle = skyGrad(H, [[0, '#05070a'], [.6, '#0a1410'], [1, '#0d0f0c']]); ctx.fillRect(0, 0, W, H);
+    sceneStars(W, H, 14, 71, t, .35);
+    for (let i = 0; i < 9; i++) {
+      const x = W * (i + .5) / 9 + (rnd(80 + i) - .5) * 90, depth = rnd(80 + i + 30), h = H * (.26 + depth * .22);
+      sceneTree(x, baseY + depth * H * .04, h, 90 + i, `rgba(4,5,4,${.65 + depth * .3})`);
+    }
+    sceneFog(W, H, baseY, H * .1, t, 20, .28, 17, 3);
+    sceneBats(W, H, t, 4, 404, .45);
+  } else if (kind === 'patch') {
+    ctx.fillStyle = skyGrad(H, [[0, '#0c1230'], [.6, '#191338'], [1, '#231a1e']]); ctx.fillRect(0, 0, W, H);
+    sceneStars(W, H, 34, 151, t, .55);
+    sceneMoon(W * .18, H * .14, Math.min(W, H) * .045, .32);
+    sceneHill(W, H, baseY + H * .04, H * .1, 21, 'rgba(10,9,16,.9)');
+    scenePumpkins(W, baseY + H * .02, 33, t);
+    sceneFog(W, H, baseY - H * .01, H * .09, t, 14, .18, 9, 2);
+  }
+  ctx.restore();
+}
+
 function draw(t) {
   const W = cv.width, H = cv.height;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  drawScene(t, W, H);
   if (st.scare > 0) { ctx.fillStyle = `rgba(200,0,0,${.35 * st.scare})`; ctx.fillRect(0, 0, W, H); }
 
   const s = Math.min(vw / 1300, vh / 1120) * dpr;
@@ -2649,6 +2824,11 @@ $('voice').value = app.voice;
 $('voice').addEventListener('change', e => { applyVoice(e.target.value); e.target.blur(); });
 $('character').addEventListener('change', e => { app.char = e.target.value; e.target.blur(); });
 $('mode').addEventListener('change', e => { setMode(e.target.value); e.target.blur(); });
+try { const v = localStorage.getItem('jack.bgOn'); if (v != null) scene.on = v === '1'; } catch (e) {}
+try { const v = localStorage.getItem('jack.bgScene'); if (v && SCENES[v]) scene.kind = v; } catch (e) {}
+$('bgOn').checked = scene.on; $('bgScene').value = scene.kind;
+$('bgOn').addEventListener('change', e => { scene.on = e.target.checked; try { localStorage.setItem('jack.bgOn', scene.on ? '1' : '0'); } catch (er) {} e.target.blur(); });
+$('bgScene').addEventListener('change', e => { scene.kind = e.target.value; try { localStorage.setItem('jack.bgScene', scene.kind); } catch (er) {} e.target.blur(); });
 $('ptt').addEventListener('change', e => { app.ptt = e.target.checked; e.target.blur(); });
 $('vol').addEventListener('input', e => { app.vol = +e.target.value; });
 $('vol').addEventListener('change', e => e.target.blur());
@@ -2750,9 +2930,17 @@ $('hidePanelBtn').addEventListener('click', e => { showPanel(false); e.target.bl
   });
 })();
 
+/* ---------- keep the screen (and Jack's voice) awake on a tablet ---------- */
+let wakeLock = null;
+async function requestWakeLock() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && app.running) requestWakeLock(); });
+
 async function wake() {
   $('start').style.display = 'none';
   app.running = true; showPanel(true);
+  requestWakeLock();
   const problems = [];
   try { await startMic(); } catch (e) {
     console.warn(e);
@@ -2770,6 +2958,7 @@ async function wake() {
 function preview() {
   $('start').style.display = 'none';
   app.running = true; showPanel(true);
+  requestWakeLock();
   note('Preview only. Hold Space to see the mouth move, arrow keys to look around.');
 }
 $('wake').addEventListener('click', wake);
