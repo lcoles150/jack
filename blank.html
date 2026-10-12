@@ -965,7 +965,8 @@ function aiSpeak(text, voiceOverride) {
       const ab = raw.createBuffer(1, n, 24000); ab.copyToChannel(f, 0);
       const src = raw.createBufferSource(); src.buffer = ab;
       Tone.connect(src, audio.nodes.aiIn);
-      if (nextT < raw.currentTime + .03) nextT = raw.currentTime + .08;
+      if (nextT < raw.currentTime + .05) nextT = raw.currentTime + .28;   // bigger lead so WiFi jitter doesn't cause an audible gap
+      if (nextT - raw.currentTime > 1.2) nextT = raw.currentTime + .28;   // way behind (long stall): catch back up instead of queuing forever
       src.start(nextT); nextT += ab.duration;
       ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
       if (!gotAudio) { gotAudio = true; ai.speaking = true; aiStatus('speaking'); }
@@ -1106,7 +1107,8 @@ function agentPlay(data) {
   const ab = raw.createBuffer(1, n, 24000); ab.copyToChannel(f, 0);
   const src = raw.createBufferSource(); src.buffer = ab;
   Tone.connect(src, audio.nodes.aiIn);
-  if (agent.nextT < raw.currentTime + .03) agent.nextT = raw.currentTime + .08;
+  if (agent.nextT < raw.currentTime + .05) agent.nextT = raw.currentTime + .28;   // bigger lead so WiFi jitter doesn't cause an audible gap
+  if (agent.nextT - raw.currentTime > 1.2) agent.nextT = raw.currentTime + .28;   // way behind (long stall): catch back up instead of queuing forever
   src.start(agent.nextT); agent.nextT += ab.duration;
   ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
   if (!ai.speaking) { ai.speaking = true; aiStatus('speaking'); }
