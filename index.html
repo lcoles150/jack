@@ -225,7 +225,7 @@
     <div class="row"><label for="aiNotes">Tonight's notes for Jack (he follows these all night)</label>
       <textarea id="aiNotes" class="ainotes"></textarea></div>
     <div class="row"><label for="aiWhisper">Whisper to Jack (type an order, press Enter)</label>
-      <input id="aiWhisper" type="text" placeholder="e.g. Call out for Doug now" autocomplete="off" spellcheck="false"></div>
+      <input id="aiWhisper" type="text" placeholder="e.g. Roast the guy in the cowboy hat" autocomplete="off" spellcheck="false"></div>
     <div class="btns" style="margin:0 0 8px"><button id="aiTalkOrder" style="width:100%">Hold to give Jack a spoken order (or hold W)</button></div>
     <div class="btns" style="margin:0 0 8px">
       <button id="aiGreet" class="ghost">Greet (G)</button>
@@ -674,9 +674,7 @@ const ai = { whisperOn: false, wWS: null, wProc: null, wSink: null, wParts: [], 
   speakUntil: 0, sources: [], history: [], lastAt: 0, heardParts: [], ttsWS: null, retry: null, gen: 0 };
 const AI_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
 function aiModel() { return ($('aiBrain') && $('aiBrain').value) || 'claude-sonnet-5-5'; }
-const AI_DEFAULT_NOTES = "Tonight: call out for Doug, the neighbor who lives out back. He's a man in his 60s. " +
-  "Every so often, when it's quiet, holler for Doug to come over. When Doug walks up, roast him hard but friendly, like old buddies " +
-  "(his age, being late, his outfit, his dad energy). Never mean-spirited.";
+const AI_DEFAULT_NOTES = "";
 const PERSONAS = {
   roast: { name: 'Roast Comic', voice: 'aura-2-arcas-en',
     speech: `Rapid-fire. Setup, punchline, move on. Uses "folks", "this guy", "look at this one".`,
@@ -967,8 +965,7 @@ function aiSpeak(text, voiceOverride) {
       const ab = raw.createBuffer(1, n, 24000); ab.copyToChannel(f, 0);
       const src = raw.createBufferSource(); src.buffer = ab;
       Tone.connect(src, audio.nodes.aiIn);
-      if (nextT < raw.currentTime + .05) nextT = raw.currentTime + .28;   // bigger lead so WiFi jitter doesn't cause an audible gap
-      if (nextT - raw.currentTime > 1.2) nextT = raw.currentTime + .28;   // way behind (long stall): catch back up instead of queuing forever
+      if (nextT < raw.currentTime + .03) nextT = raw.currentTime + .08;
       src.start(nextT); nextT += ab.duration;
       ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
       if (!gotAudio) { gotAudio = true; ai.speaking = true; aiStatus('speaking'); }
@@ -1109,8 +1106,7 @@ function agentPlay(data) {
   const ab = raw.createBuffer(1, n, 24000); ab.copyToChannel(f, 0);
   const src = raw.createBufferSource(); src.buffer = ab;
   Tone.connect(src, audio.nodes.aiIn);
-  if (agent.nextT < raw.currentTime + .05) agent.nextT = raw.currentTime + .28;   // bigger lead so WiFi jitter doesn't cause an audible gap
-  if (agent.nextT - raw.currentTime > 1.2) agent.nextT = raw.currentTime + .28;   // way behind (long stall): catch back up instead of queuing forever
+  if (agent.nextT < raw.currentTime + .03) agent.nextT = raw.currentTime + .08;
   src.start(agent.nextT); agent.nextT += ab.duration;
   ai.sources.push(src); src.onended = () => { ai.sources = ai.sources.filter(x => x !== src); };
   if (!ai.speaking) { ai.speaking = true; aiStatus('speaking'); }
